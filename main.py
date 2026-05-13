@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Request
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String
 from sqlalchemy.orm import DeclarativeBase, Session
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
+from fastapi.responses import JSONResponse
+import math
 
 import os
 from dotenv import load_dotenv
@@ -52,9 +54,11 @@ def inhg_a_hpa(i): return round(float(i) * 33.8639, 1)
 
 app = FastAPI()
 
-@app.post("/data/report/")
-async def recibir_datos(request: Request):
+async def _procesar_datos(request: Request):
     datos = await request.form()
+
+#    print("FORM:", dict(datos))
+#    print("QUERY:", dict(request.query_params))
 
     medicion = Medicion(
         estacion_id     = datos.get("PASSKEY"),
@@ -84,20 +88,48 @@ async def recibir_datos(request: Request):
 
     return {"ok": True}
 
+@app.post("/data/report/")
+async def recibir_datos(request: Request):
+    return await _procesar_datos(request)
+
+@app.get("/data/report")
+async def recibir_datos_weewx(request: Request):
+    datos = request.query_params
+    medicion = Medicion(
+        estacion_id     = datos.get("ID"),
+        timestamp       = datetime.now(timezone.utc),
+        temp_c          = f_a_c(datos.get("tempf", 32)),
+        temp_interior_c = f_a_c(datos.get("tempinf", 32)),
+        humedad         = int(float(datos.get("humidity", 0))),
+        humedad_interior= 0,
+        viento_vel      = mph_a_kmh(datos.get("windspeedmph", 0)),
+        viento_racha    = mph_a_kmh(datos.get("windgustmph", 0)),
+        viento_dir      = int(float(datos.get("winddir", 0))),
+        presion_rel     = inhg_a_hpa(datos.get("baromin", 0)),
+        presion_abs     = inhg_a_hpa(datos.get("baromin", 0)),
+        lluvia_rate     = in_a_mm(datos.get("rainratein", 0)),
+        lluvia_hora     = in_a_mm(datos.get("rainin", 0)),
+        lluvia_dia      = in_a_mm(datos.get("dailyrainin", 0)),
+        lluvia_semana   = 0,
+        lluvia_mes      = 0,
+        lluvia_anio     = 0,
+        radiacion_solar = float(datos.get("solarradiation", 0)),
+        uv              = int(float(datos.get("UV", 0))),
+    )
+    with Session(engine) as session:
+        session.add(medicion)
+        session.commit()
+    return {"ok": True}
+
 @app.get("/")
 def home():
     return {"status": "BariMet online"}
 
-
-
-from fastapi.responses import JSONResponse
-import math
-
-def punto_rocio(temp_c, humedad):
-    a, b = 17.27, 237.7
-    alpha = (a * temp_c / (b + temp_c)) + math.log(humedad / 100.0)
-#    alpha = (a * temp_c / (b + temp_c)) + (humedad / 100.0)
-    return round((b * alpha) / (a - alpha), 1)
+def punto_rocio(temp_c, humedad, presion_hpa=1013.25):
+    es = presion_hpa * 0.61078 * math.exp((17.27 * temp_c) / (temp_c + 237.3))
+    e = (humedad / 100.0) * es
+    td = (237.3 * math.log(e / (presion_hpa * 0.61078))) / (17.27 - math.log(e / (presion_hpa * 0.61078)))
+    return round(td, 1)
 
 @app.get("/api/ultimo")
 def ultimo_dato():
@@ -129,6 +161,44 @@ def ultimas_24hs():
                 "timestamp": m.timestamp.isoformat(),
                 "temp_c": m.temp_c,
                 "rocio": punto_rocio(m.temp_c, m.humedad),
+            }
+            for m in mediciones
+        ]
+
+@app.get("/api/estaciones")
+def todas_estaciones():
+    with Session(engine) as session:
+        # Subconsulta: último timestamp por estación
+        from sqlalchemy import func
+        ultimos = (
+            session.query(
+                Medicion.estacion_id,
+                func.max(Medicion.timestamp).label("ultimo")
+            )
+            .group_by(Medicion.estacion_id)
+            .subquery()
+        )
+        # Join para traer todos los datos de esa fila
+        mediciones = (
+            session.query(Medicion)
+            .join(ultimos, (Medicion.estacion_id == ultimos.c.estacion_id) & 
+                           (Medicion.timestamp == ultimos.c.ultimo))
+            .all()
+        )
+        return [
+            {
+                "estacion_id": m.estacion_id,
+                "timestamp": m.timestamp.isoformat(),
+                "temp_c": m.temp_c,
+                "humedad": m.humedad,
+                "rocio": punto_rocio(m.temp_c, m.humedad, m.presion_rel),
+                "viento_vel": m.viento_vel,
+                "viento_racha": m.viento_racha,
+                "viento_dir": m.viento_dir,
+                "presion_rel": m.presion_rel,
+                "presion_abs": m.presion_abs,
+                "radiacion_solar": m.radiacion_solar,
+                "uv": m.uv,
             }
             for m in mediciones
         ]
