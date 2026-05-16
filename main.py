@@ -52,6 +52,8 @@ def mph_a_kmh(mph): return round(float(mph) * 1.60934, 1)
 def in_a_mm(i): return round(float(i) * 25.4, 2)
 def inhg_a_hpa(i): return round(float(i) * 33.8639, 1)
 
+from estaciones import ESTACIONES
+
 app = FastAPI()
 
 async def _procesar_datos(request: Request):
@@ -106,7 +108,7 @@ async def recibir_datos_weewx(request: Request):
         viento_racha    = mph_a_kmh(datos.get("windgustmph", 0)),
         viento_dir      = int(float(datos.get("winddir", 0))),
         presion_rel     = inhg_a_hpa(datos.get("baromin", 0)),
-        presion_abs     = inhg_a_hpa(datos.get("baromin", 0)),
+        presion_abs     = inhg_a_hpa(datos.get("absbaromin", datos.get("baromin", 0))),
         lluvia_rate     = in_a_mm(datos.get("rainratein", 0)),
         lluvia_hora     = in_a_mm(datos.get("rainin", 0)),
         lluvia_dia      = in_a_mm(datos.get("dailyrainin", 0)),
@@ -185,9 +187,12 @@ def todas_estaciones():
                            (Medicion.timestamp == ultimos.c.ultimo))
             .all()
         )
-        return [
-            {
-                "estacion_id": m.estacion_id,
+        resultado = []
+        for m in mediciones:
+            info = ESTACIONES.get(m.estacion_id, {})
+            resultado.append({
+                "nombre": info.get("nombre", m.estacion_id),
+                "altura": info.get("altura"),
                 "timestamp": m.timestamp.isoformat(),
                 "temp_c": m.temp_c,
                 "humedad": m.humedad,
@@ -199,6 +204,5 @@ def todas_estaciones():
                 "presion_abs": m.presion_abs,
                 "radiacion_solar": m.radiacion_solar,
                 "uv": m.uv,
-            }
-            for m in mediciones
-        ]
+            })
+        return resultado

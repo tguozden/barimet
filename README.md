@@ -67,7 +67,23 @@ Crear el archivo `.env` en la raíz del proyecto:
 DATABASE_URL=postgresql://tuusuario:tupassword@localhost/barimet
 ```
 
-### 5. Cloudflare Tunnel
+### 5. Configurar estaciones
+
+Copiar el ejemplo y completar con los passkeys reales de cada estación:
+
+```bash
+cp estaciones.example.py estaciones.py
+```
+
+Editar `estaciones.py`:
+
+```python
+ESTACIONES = {
+    'PASSKEY_REAL': {'nombre': 'Mi Estación', 'altura': 800},
+}
+```
+
+### 6. Cloudflare Tunnel
 
 Instalar `cloudflared`:
 
@@ -104,7 +120,7 @@ sudo systemctl enable cloudflared
 sudo systemctl start cloudflared
 ```
 
-### 6. Servicio systemd para la API
+### 7. Servicio systemd para la API
 
 Crear `/etc/systemd/system/barimet.service`:
 
@@ -153,9 +169,10 @@ sudo systemctl restart barimet
 
 ```
 barimet/
-├── main.py          # API FastAPI
-├── .env             # Variables de entorno (no se sube al repo)
-├── .env.example     # Ejemplo de variables de entorno
+├── main.py                  # API FastAPI
+├── estaciones.py            # Passkeys y nombres de estaciones (no se sube al repo)
+├── estaciones.example.py    # Ejemplo de configuración de estaciones
+├── .env                     # Variables de entorno (no se sube al repo)
 └── .gitignore
 ```
 
