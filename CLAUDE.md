@@ -15,6 +15,7 @@ barimet.com.ar (Cloudflare)
         ▼
 Nginx (puerto 80)
         ├── /                  → /var/www/barimet/index.html
+        ├── /chalten           → /var/www/barimet/chalten.html
         ├── /api/              → FastAPI (puerto 8080)
         └── /data/             → FastAPI (puerto 8080)
         │
@@ -28,10 +29,13 @@ PostgreSQL (base de datos: barimet, usuario: tomi)
 ## Archivos importantes
 
 - `~/barimet/main.py` — API FastAPI (recibe datos, sirve endpoints)
-- `~/barimet/estaciones.py` — dict ESTACIONES con passkeys, nombres y alturas (no va al repo)
+- `~/barimet/estaciones.py` — dicts ESTACIONES y CHALTEN con passkeys, nombres y alturas (no va al repo)
 - `~/barimet/estaciones.example.py` — ejemplo sin passkeys reales (va al repo)
 - `~/barimet/.env` — variables de entorno (no va al repo)
-- `/var/www/barimet/index.html` — página web (symlink desde ~/barimet/index.html)
+- `~/barimet/index.html` — página web principal
+- `~/barimet/chalten.html` — página para estaciones de Chaltén
+- `/var/www/barimet/index.html` — página servida por nginx
+- `/var/www/barimet/chalten.html` — página /chalten servida por nginx
 - `~/.cloudflared/config.yml` — configuración del tunnel Cloudflare
 - `/etc/nginx/sites-available/barimet` — configuración de Nginx
 - `/etc/systemd/system/barimet.service` — servicio systemd de uvicorn
@@ -63,7 +67,8 @@ DATABASE_URL=postgresql://tomi:PASSWORD@localhost/barimet
 | Endpoint | Método | Descripción |
 |---|---|---|
 | `/data/report/` | POST | Recibe datos de las estaciones (form-urlencoded) |
-| `/api/estaciones` | GET | Último dato de cada estación |
+| `/api/estaciones` | GET | Último dato de cada estación (excluye CHALTEN) |
+| `/api/chalten` | GET | Último dato de cada estación de Chaltén |
 | `/api/ultimo` | GET | Último dato recibido (cualquier estación) |
 | `/api/ultimas24` | GET | Temperatura y punto de rocío últimas 24hs |
 | `/` | GET | Estado del servidor |
@@ -106,6 +111,14 @@ Los PASSKEY de las estaciones se identifican en el frontend en el objeto `ESTACI
 | `fortin` | Fortín | 860 msnm |
 | `DC3CCEADB75D00DB861BD419CA4FDBB2` | Frey | 1770 msnm |
 
+### Estaciones Chaltén (en `/chalten`)
+
+| PASSKEY | Nombre | Altura |
+|---|---|---|
+| `PUmH8FK0` | China | 2000 msnm |
+| `jBEZGKDG` | Termo | 1500 msnm |
+| `Of4gN8ev` | Repe | 1200 msnm |
+
 ## Pendiente
 
 - Wind barbs: mostrar velocidad/racha con barbas meteorológicas. Intentado con SVG manual, quedó solo el círculo de calma. Requiere una librería apropiada.
@@ -113,7 +126,8 @@ Los PASSKEY de las estaciones se identifican en el frontend en el objeto `ESTACI
 ## Página web
 
 - Muestra una card por estación con último dato
-- Actualiza automáticamente cada 30 segundos via fetch a `/api/estaciones`
+- Actualiza automáticamente cada 10 segundos via fetch a `/api/estaciones`
+- `/chalten` muestra estaciones de Chaltén con fetch a `/api/chalten`
 - Indicador online/offline (verde/rojo) según si el último dato tiene menos de 5 minutos
 - Muestra: temperatura / punto de rocío, humedad (con barra), viento / racha con flecha direccional, presión relativa y absoluta, radiación solar, UV
 

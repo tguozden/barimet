@@ -44,6 +44,7 @@ class Medicion(Base):
     # Solar
     radiacion_solar = Column(Float)   # W/m²
     uv              = Column(Integer)
+    vin             = Column(Float)   # Voltaje batería (V)
 
 Base.metadata.create_all(engine)
 
@@ -52,16 +53,19 @@ def mph_a_kmh(mph): return round(float(mph) * 1.60934, 1)
 def in_a_mm(i): return round(float(i) * 25.4, 2)
 def inhg_a_hpa(i): return round(float(i) * 33.8639, 1)
 
-from estaciones import ESTACIONES
+from estaciones import ESTACIONES, CHALTEN
+
+CHALTEN_PASSKEYS = set(CHALTEN.keys())
 
 app = FastAPI()
+
+# Almacena el último POST crudo por estación (para debug)
+ultimos_posts: dict[str, dict] = {}
 
 async def _procesar_datos(request: Request):
     datos = await request.form()
 
-#    print("FORM:", dict(datos))
-#    print("QUERY:", dict(request.query_params))
-
+    vin_raw = datos.get("vin") or datos.get("Vin")
     medicion = Medicion(
         estacion_id     = datos.get("PASSKEY"),
         timestamp       = datetime.now(timezone.utc),
@@ -82,11 +86,18 @@ async def _procesar_datos(request: Request):
         lluvia_anio     = in_a_mm(datos.get("yearlyrainin", 0)),
         radiacion_solar = float(datos.get("solarradiation", 0)),
         uv              = int(datos.get("uv", 0)),
+        vin             = float(vin_raw) if vin_raw else None,
     )
 
     with Session(engine) as session:
         session.add(medicion)
         session.commit()
+
+    # Guardar POST crudo para debug
+    ultimos_posts[datos.get("PASSKEY")] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": dict(datos),
+    }
 
     return {"ok": True}
 
@@ -123,15 +134,26 @@ async def recibir_datos_weewx(request: Request):
         session.commit()
     return {"ok": True}
 
+@app.get("/api/debug/ultimo-post")
+def debug_ultimos_posts():
+    return ultimos_posts
+
+@app.get("/api/debug/ultimo-post/{passkey}")
+def debug_ultimo_post_estacion(passkey: str):
+    post = ultimos_posts.get(passkey)
+    if not post:
+        return JSONResponse(status_code=404, content={"error": "sin datos"})
+    return post
+
 @app.get("/")
 def home():
     return {"status": "BariMet online"}
 
-def punto_rocio(temp_c, humedad, presion_hpa=1013.25):
-    es = presion_hpa * 0.61078 * math.exp((17.27 * temp_c) / (temp_c + 237.3))
-    e = (humedad / 100.0) * es
-    td = (237.3 * math.log(e / (presion_hpa * 0.61078))) / (17.27 - math.log(e / (presion_hpa * 0.61078)))
-    return round(td, 1)
+def punto_rocio(temp_c, humedad, presion_hpa=None):
+    if not temp_c or not humedad or humedad <= 0:
+        return None
+    gamma = (17.27 * temp_c) / (temp_c + 237.3) + math.log(humedad / 100.0)
+    return round(237.3 * gamma / (17.27 - gamma), 1)
 
 @app.get("/api/ultimo")
 def ultimo_dato():
@@ -149,6 +171,7 @@ def ultimo_dato():
             "presion_rel": m.presion_rel,
             "radiacion_solar": m.radiacion_solar,
             "uv": m.uv,
+            "vin": m.vin,
         }
 
 @app.get("/api/ultimas24")
@@ -187,11 +210,16 @@ def todas_estaciones():
                            (Medicion.timestamp == ultimos.c.ultimo))
             .all()
         )
+        mediciones_dict = {m.estacion_id: m for m in mediciones}
         resultado = []
-        for m in mediciones:
-            info = ESTACIONES.get(m.estacion_id, {})
+        vistos = set()
+        for estacion_id, info in ESTACIONES.items():
+            m = mediciones_dict.get(estacion_id)
+            if not m:
+                continue
+            vistos.add(estacion_id)
             resultado.append({
-                "nombre": info.get("nombre", m.estacion_id),
+                "nombre": info.get("nombre", estacion_id),
                 "altura": info.get("altura"),
                 "timestamp": m.timestamp.isoformat(),
                 "temp_c": m.temp_c,
@@ -204,5 +232,66 @@ def todas_estaciones():
                 "presion_abs": m.presion_abs,
                 "radiacion_solar": m.radiacion_solar,
                 "uv": m.uv,
+                "vin": m.vin,
+            })
+        for m in mediciones:
+            if m.estacion_id not in vistos and m.estacion_id not in CHALTEN_PASSKEYS:
+                resultado.append({
+                    "nombre": m.estacion_id,
+                    "altura": None,
+                    "timestamp": m.timestamp.isoformat(),
+                    "temp_c": m.temp_c,
+                    "humedad": m.humedad,
+                    "rocio": punto_rocio(m.temp_c, m.humedad, m.presion_rel),
+                    "viento_vel": m.viento_vel,
+                    "viento_racha": m.viento_racha,
+                    "viento_dir": m.viento_dir,
+                    "presion_rel": m.presion_rel,
+                    "presion_abs": m.presion_abs,
+                    "radiacion_solar": m.radiacion_solar,
+                    "uv": m.uv,
+                    "vin": m.vin,
+                })
+        return resultado
+
+@app.get("/api/chalten")
+def estaciones_chalten():
+    with Session(engine) as session:
+        from sqlalchemy import func
+        ultimos = (
+            session.query(
+                Medicion.estacion_id,
+                func.max(Medicion.timestamp).label("ultimo")
+            )
+            .group_by(Medicion.estacion_id)
+            .subquery()
+        )
+        mediciones = (
+            session.query(Medicion)
+            .join(ultimos, (Medicion.estacion_id == ultimos.c.estacion_id) & 
+                           (Medicion.timestamp == ultimos.c.ultimo))
+            .all()
+        )
+        mediciones_dict = {m.estacion_id: m for m in mediciones}
+        resultado = []
+        for estacion_id, info in CHALTEN.items():
+            m = mediciones_dict.get(estacion_id)
+            if not m:
+                continue
+            resultado.append({
+                "nombre": info.get("nombre", estacion_id),
+                "altura": info.get("altura"),
+                "timestamp": m.timestamp.isoformat(),
+                "temp_c": m.temp_c,
+                "humedad": m.humedad,
+                "rocio": punto_rocio(m.temp_c, m.humedad, m.presion_rel),
+                "viento_vel": m.viento_vel,
+                "viento_racha": m.viento_racha,
+                "viento_dir": m.viento_dir,
+                "presion_rel": m.presion_rel,
+                "presion_abs": m.presion_abs,
+                "radiacion_solar": m.radiacion_solar,
+                "uv": m.uv,
+                "vin": m.vin,
             })
         return resultado
