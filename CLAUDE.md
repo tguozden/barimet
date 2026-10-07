@@ -69,8 +69,6 @@ DATABASE_URL=postgresql://tomi:PASSWORD@localhost/barimet
 | `/data/report/` | POST | Recibe datos de las estaciones (form-urlencoded) |
 | `/api/estaciones` | GET | Último dato de cada estación (excluye CHALTEN) |
 | `/api/chalten` | GET | Último dato de cada estación de Chaltén |
-| `/api/ultimo` | GET | Último dato recibido (cualquier estación) |
-| `/api/ultimas24` | GET | Temperatura y punto de rocío últimas 24hs |
 | `/` | GET | Estado del servidor |
 
 ## Base de datos

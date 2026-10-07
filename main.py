@@ -1,9 +1,8 @@
 from fastapi import FastAPI, Request
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String
 from sqlalchemy.orm import DeclarativeBase, Session
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
-from fastapi.responses import JSONResponse
 import math
 
 import os
@@ -67,9 +66,6 @@ CHALTEN_PASSKEYS = set(CHALTEN.keys())
 
 app = FastAPI()
 
-# Almacena el último POST crudo por estación (para debug)
-ultimos_posts: dict[str, dict] = {}
-
 async def _procesar_datos(request: Request):
     datos = await request.form()
 
@@ -100,12 +96,6 @@ async def _procesar_datos(request: Request):
     with Session(engine) as session:
         session.add(medicion)
         session.commit()
-
-    # Guardar POST crudo para debug
-    ultimos_posts[datos.get("PASSKEY")] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data": dict(datos),
-    }
 
     return {"ok": True}
 
@@ -142,17 +132,6 @@ async def recibir_datos_weewx(request: Request):
         session.commit()
     return {"ok": True}
 
-@app.get("/api/debug/ultimo-post")
-def debug_ultimos_posts():
-    return ultimos_posts
-
-@app.get("/api/debug/ultimo-post/{passkey}")
-def debug_ultimo_post_estacion(passkey: str):
-    post = ultimos_posts.get(passkey)
-    if not post:
-        return JSONResponse(status_code=404, content={"error": "sin datos"})
-    return post
-
 @app.get("/")
 def home():
     return {"status": "BariMet online"}
@@ -162,41 +141,6 @@ def punto_rocio(temp_c, humedad, presion_hpa=None):
         return None
     gamma = (17.27 * temp_c) / (temp_c + 237.3) + math.log(humedad / 100.0)
     return round(237.3 * gamma / (17.27 - gamma), 1)
-
-@app.get("/api/ultimo")
-def ultimo_dato():
-    with Session(engine) as session:
-        m = session.query(Medicion).order_by(Medicion.timestamp.desc()).first()
-        if not m:
-            return JSONResponse(status_code=404, content={"error": "sin datos"})
-        return {
-            "timestamp": m.timestamp.isoformat(),
-            "temp_c": m.temp_c,
-            "humedad": m.humedad,
-            "rocio": punto_rocio(m.temp_c, m.humedad),
-            "viento_vel": m.viento_vel,
-            "viento_dir": m.viento_dir,
-            "presion_rel": m.presion_rel,
-            "radiacion_solar": m.radiacion_solar,
-            "uv": m.uv,
-            "vin": m.vin,
-        }
-
-@app.get("/api/ultimas24")
-def ultimas_24hs():
-    with Session(engine) as session:
-        desde = datetime.now(timezone.utc) - timedelta(hours=24)
-        mediciones = session.query(Medicion).filter(
-            Medicion.timestamp >= desde
-        ).order_by(Medicion.timestamp.asc()).all()
-        return [
-            {
-                "timestamp": m.timestamp.isoformat(),
-                "temp_c": m.temp_c,
-                "rocio": punto_rocio(m.temp_c, m.humedad),
-            }
-            for m in mediciones
-        ]
 
 @app.get("/api/estaciones")
 def todas_estaciones():
