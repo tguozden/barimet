@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chalten — BariMet</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f4f0; color: #1a1a18; padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+    .header { padding: 1.5rem 0 1rem; border-bottom: 1px solid #e0dfd8; margin-bottom: 1.5rem; }
+    .header h1 { font-size: 22px; font-weight: 500; }
+    .header p { font-size: 14px; color: #888780; margin-top: 4px; }
+
+    #stations { display: flex; flex-direction: column; gap: 8px; }
+
+    .station-card {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 14px;
+      background: #fff; border: 1px solid #e0dfd8; border-radius: 10px;
+    }
+    .station-header { display: flex; align-items: center; gap: 10px; }
+    .station-data { display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; margin-left: -16px; }
+    .station-data > .temp-hum { flex: 0 0 auto; }
+    .station-data > .temp-hum .metric-value { width: 60px; text-align: right; }
+    .station-data > :nth-child(2) { flex: 0 0 80px; text-align: right; }
+    .station-data > :nth-child(3) { flex: 0 1 auto; }
+    .station-data > :nth-child(4) { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .station-name { font-size: 15px; font-weight: 500; width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .altura { font-size: 12px; color: #888780; width: 9ch; white-space: nowrap; }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #5DCAA5; flex-shrink: 0; }
+    .dot.offline { background: #F09595; }
+
+    .metric-value { font-size: 15px; font-weight: 500; white-space: nowrap; }
+    .temp-num  { font-variant-numeric: tabular-nums; }
+    .wind-num  { font-size: 10px; font-variant-numeric: tabular-nums; }
+    .sol-num   { display: inline-block; min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
+    .pres-num  { display: inline-block; min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
+    .metric-unit { font-size: 12px; color: #888780; font-weight: 400; }
+
+
+    .temp-hum { display: inline-flex; align-items: center; gap: 3px; }
+    .hum-vbar { width: 5px; height: 22px; background: #e0dfd8; border-radius: 99px; position: relative; overflow: hidden; flex-shrink: 0; }
+    .hum-vbar-fill { position: absolute; bottom: 0; left: 0; right: 0; background: #5DCAA5; border-radius: 99px; transition: height 0.4s ease; }
+    .hum-pct { display: none; }
+
+    .wind-arrow { display: inline-block; font-size: 15px; line-height: 1; margin: 0 4px; transition: transform 0.4s ease; }
+
+    .time-ago { font-size: 12px; color: #888780; white-space: nowrap; width: 4ch; display: inline-block; text-align: right; }
+    .uv-label { font-size: 11px; color: #888780; font-weight: 400; margin-right: 4px; }
+
+    .no-data { text-align: center; padding: 2rem; color: #888780; font-size: 14px; }
+    .footer { text-align: center; font-size: 12px; color: #b4b2a9; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e0dfd8; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Chalten</h1>
+  </div>
+
+  <div id="stations">
+    <div class="no-data">Cargando datos...</div>
+  </div>
+
+  <div class="footer"><a href="https://barimet.goatcounter.com" target="_blank" style="color:#b4b2a9;text-decoration:none">visitas</a></div>
+
+  <script>
+    const API = '/api/chalten';
+
+    const DIRS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+
+    function degToDir(deg) {
+      return DIRS[Math.round(deg / 22.5) % 16];
+    }
+
+    function timeAgo(isoStr) {
+      const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+      if (diff < 60) return `${diff}s`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+      return `${Math.floor(diff / 3600)}h`;
+    }
+
+    // número con d decimales, o '–' si la estación no lo mandó
+    function num(v, d) { return v == null ? '–' : (d == null ? v : v.toFixed(d)); }
+
+    function renderStations(data) {
+      const container = document.getElementById('stations');
+      if (!data || data.length === 0) {
+        container.innerHTML = '<div class="no-data">Sin datos disponibles</div>';
+        return;
+      }
+      container.innerHTML = data.map(s => {
+        const ago = timeAgo(s.timestamp);
+        const isOnline = (Date.now() - new Date(s.timestamp)) < 5 * 60 * 1000;
+        const alturaTxt = s.altura != null ? `${s.altura} msnm` : '';
+        return `<div class="station-card"><div class="station-header"><span class="dot ${isOnline ? '' : 'offline'}"></span><span class="time-ago">${ago}</span><span class="station-name">${s.nombre}</span><span class="altura">${alturaTxt}</span></div><div class="station-data"><span class="temp-hum" title="Humedad ${num(s.humedad)}%"><span class="metric-value"><span class="temp-num">${num(s.temp_c, 1)}</span><span class="metric-unit">°C</span></span><span class="hum-vbar"><span class="hum-vbar-fill" style="height:${s.humedad ?? 0}%"></span></span><span class="hum-pct">${num(s.humedad)}%</span></span><span class="metric-value"><span class="wind-arrow" style="transform:rotate(${s.viento_dir ?? 0}deg)${s.viento_dir == null ? ';visibility:hidden' : ''}">↑</span><span class="wind-num">${num(s.viento_vel, 0)}</span><span class="wind-num" style="font-size:inherit"> ${num(s.viento_racha, 0)}</span><span class="metric-unit"> km/h</span></span><span class="metric-value"><span class="sol-num">${num(s.radiacion_solar, 0)}</span><span class="metric-unit"> W/m²</span><span class="uv-label"> uv ${num(s.uv)}</span></span><span class="metric-value">${s.presion_rel != null ? `<span class="pres-num">${s.presion_rel}</span><span class="metric-unit"> abs ${num(s.presion_abs)}</span>` : ''}</span></span></div></div>`;
+      }).join('');
+      requestAnimationFrame(hideOverflow);
+    }
+
+    function hideOverflow() {
+      document.querySelectorAll('.station-data').forEach(el => {
+        const pres = el.children[3];
+        if (pres && pres.scrollWidth > pres.clientWidth) {
+          pres.style.display = 'none';
+        }
+      });
+    }
+
+    async function fetchData() {
+      try {
+        const res = await fetch(API);
+        const data = await res.json();
+        renderStations(data);
+      } catch(e) {
+        document.getElementById('stations').innerHTML = '<div class="no-data">Error conectando con la API</div>';
+      }
+    }
+
+    fetchData();
+    setInterval(fetchData, 10000);
+  </script>
+
+  <script data-goatcounter="https://barimet.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+</body>
+</html>
