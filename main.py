@@ -52,6 +52,14 @@ def f_a_c(f): return round((float(f) - 32) * 5 / 9, 1)
 def mph_a_kmh(mph): return round(float(mph) * 1.60934, 1)
 def in_a_mm(i): return round(float(i) * 25.4, 2)
 def inhg_a_hpa(i): return round(float(i) * 33.8639, 1)
+def entero(x): return int(float(x))
+
+def valor(datos, clave, conv=float):
+    """campo convertido, o None si la estación no lo mandó (por ej. sensor exterior caído)"""
+    v = datos.get(clave)
+    if v is None or v == '' or float(v) == -9999:
+        return None
+    return conv(v)
 
 from estaciones import ESTACIONES, CHALTEN
 
@@ -69,24 +77,24 @@ async def _procesar_datos(request: Request):
     medicion = Medicion(
         estacion_id     = datos.get("PASSKEY"),
         timestamp       = datetime.now(timezone.utc),
-        temp_c          = f_a_c(datos.get("tempf", 32)),
-        temp_interior_c = f_a_c(datos.get("tempinf", 32)),
-        humedad         = int(datos.get("humidity", 0)),
-        humedad_interior= int(datos.get("humidityin", 0)),
-        viento_vel      = mph_a_kmh(datos.get("windspeedmph", 0)),
-        viento_racha    = mph_a_kmh(datos.get("windgustmph", 0)),
-        viento_dir      = int(datos.get("winddir", 0)),
-        presion_rel     = inhg_a_hpa(datos.get("baromrelin", 0)),
-        presion_abs     = inhg_a_hpa(datos.get("baromabsin", 0)),
-        lluvia_rate     = in_a_mm(datos.get("rainratein", 0)),
-        lluvia_hora     = in_a_mm(datos.get("hourlyrainin", 0)),
-        lluvia_dia      = in_a_mm(datos.get("dailyrainin", 0)),
-        lluvia_semana   = in_a_mm(datos.get("weeklyrainin", 0)),
-        lluvia_mes      = in_a_mm(datos.get("monthlyrainin", 0)),
-        lluvia_anio     = in_a_mm(datos.get("yearlyrainin", 0)),
-        radiacion_solar = float(datos.get("solarradiation", 0)),
-        uv              = int(datos.get("uv", 0)),
-        vin             = float(vin_raw) if vin_raw else None,
+        temp_c          = valor(datos, "tempf", f_a_c),
+        temp_interior_c = valor(datos, "tempinf", f_a_c),
+        humedad         = valor(datos, "humidity", entero),
+        humedad_interior= valor(datos, "humidityin", entero),
+        viento_vel      = valor(datos, "windspeedmph", mph_a_kmh),
+        viento_racha    = valor(datos, "windgustmph", mph_a_kmh),
+        viento_dir      = valor(datos, "winddir", entero),
+        presion_rel     = valor(datos, "baromrelin", inhg_a_hpa),
+        presion_abs     = valor(datos, "baromabsin", inhg_a_hpa),
+        lluvia_rate     = valor(datos, "rainratein", in_a_mm),
+        lluvia_hora     = valor(datos, "hourlyrainin", in_a_mm),
+        lluvia_dia      = valor(datos, "dailyrainin", in_a_mm),
+        lluvia_semana   = valor(datos, "weeklyrainin", in_a_mm),
+        lluvia_mes      = valor(datos, "monthlyrainin", in_a_mm),
+        lluvia_anio     = valor(datos, "yearlyrainin", in_a_mm),
+        radiacion_solar = valor(datos, "solarradiation"),
+        uv              = valor(datos, "uv" if "uv" in datos else "UV", entero),  # china manda "UV"
+        vin            = float(vin_raw) if vin_raw else None,
     )
 
     with Session(engine) as session:
@@ -111,23 +119,23 @@ async def recibir_datos_weewx(request: Request):
     medicion = Medicion(
         estacion_id     = datos.get("ID"),
         timestamp       = datetime.now(timezone.utc),
-        temp_c          = f_a_c(datos.get("tempf", 32)),
-        temp_interior_c = f_a_c(datos.get("tempinf", 32)),
-        humedad         = int(float(datos.get("humidity", 0))),
-        humedad_interior= 0,
-        viento_vel      = mph_a_kmh(datos.get("windspeedmph", 0)),
-        viento_racha    = mph_a_kmh(datos.get("windgustmph", 0)),
-        viento_dir      = int(float(datos.get("winddir", 0))),
-        presion_rel     = inhg_a_hpa(datos.get("baromin", 0)),
-        presion_abs     = inhg_a_hpa(datos.get("absbaromin", datos.get("baromin", 0))),
-        lluvia_rate     = in_a_mm(datos.get("rainratein", 0)),
-        lluvia_hora     = in_a_mm(datos.get("rainin", 0)),
-        lluvia_dia      = in_a_mm(datos.get("dailyrainin", 0)),
-        lluvia_semana   = 0,
-        lluvia_mes      = 0,
-        lluvia_anio     = 0,
-        radiacion_solar = float(datos.get("solarradiation", 0)),
-        uv              = int(float(datos.get("UV", 0))),
+        temp_c          = valor(datos, "tempf", f_a_c),
+        temp_interior_c = valor(datos, "tempinf", f_a_c),
+        humedad         = valor(datos, "humidity", entero),
+        humedad_interior= None,
+        viento_vel      = valor(datos, "windspeedmph", mph_a_kmh),
+        viento_racha    = valor(datos, "windgustmph", mph_a_kmh),
+        viento_dir      = valor(datos, "winddir", entero),
+        presion_rel     = valor(datos, "baromin", inhg_a_hpa),
+        presion_abs     = valor(datos, "absbaromin", inhg_a_hpa) or valor(datos, "baromin", inhg_a_hpa),
+        lluvia_rate     = valor(datos, "rainratein", in_a_mm),
+        lluvia_hora     = valor(datos, "rainin", in_a_mm),
+        lluvia_dia      = valor(datos, "dailyrainin", in_a_mm),
+        lluvia_semana   = None,
+        lluvia_mes      = None,
+        lluvia_anio     = None,
+        radiacion_solar = valor(datos, "solarradiation"),
+        uv              = valor(datos, "UV", entero),
     )
     with Session(engine) as session:
         session.add(medicion)
@@ -150,7 +158,7 @@ def home():
     return {"status": "BariMet online"}
 
 def punto_rocio(temp_c, humedad, presion_hpa=None):
-    if not temp_c or not humedad or humedad <= 0:
+    if temp_c is None or humedad is None or humedad <= 0:
         return None
     gamma = (17.27 * temp_c) / (temp_c + 237.3) + math.log(humedad / 100.0)
     return round(237.3 * gamma / (17.27 - gamma), 1)
