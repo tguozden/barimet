@@ -4,6 +4,8 @@ from sqlalchemy.orm import DeclarativeBase, Session
 from datetime import datetime, timezone
 
 import math
+import logging
+import re
 
 import os
 from dotenv import load_dotenv
@@ -65,6 +67,16 @@ from estaciones import ESTACIONES, CHALTEN
 CHALTEN_PASSKEYS = set(CHALTEN.keys())
 
 app = FastAPI()
+
+class _OcultarPassword(logging.Filter):
+    """weewx manda PASSWORD en la URL; que no quede en el access log"""
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            record.args = tuple(re.sub(r'PASSWORD=[^&\s]*', 'PASSWORD=***', a) if isinstance(a, str) else a
+                                for a in record.args)
+        return True
+
+logging.getLogger("uvicorn.access").addFilter(_OcultarPassword())
 
 async def _procesar_datos(request: Request):
     datos = await request.form()

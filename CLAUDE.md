@@ -152,6 +152,14 @@ sudo journalctl -u barimet.service -f       # logs de FastAPI en tiempo real
 sudo journalctl -u cloudflared.service -f   # logs del tunnel
 ```
 
+## Usar 127.0.0.1, no localhost
+
+En nginx (`proxy_pass`) y en cloudflared (`service:`) se usa `127.0.0.1`, nunca `localhost`. `localhost` también resuelve a `::1`, y uvicorn (8080) y nginx (80) escuchan solo en IPv4. Con `localhost`, nginx intentaba primero `[::1]:8080` en cada request y llenaba el error.log de "connection refused".
+
+## Arranque después de un reinicio
+
+Al arrancar, el DNS del proveedor puede tardar unos minutos. cloudflared falla hasta que el DNS responde ("server misbehaving" en el log). Por eso tiene un override en `/etc/systemd/system/cloudflared.service.d/override.conf` que le da más tiempo para arrancar y hace que reintente siempre.
+
 ## GitHub
 
 - Repo: https://github.com/tguozden/barimet
